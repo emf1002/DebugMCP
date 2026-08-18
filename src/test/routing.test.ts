@@ -20,18 +20,19 @@ class RecordingHandler implements IDebuggingHandler {
 		return Promise.resolve(`${this.tag}:${op}`);
 	}
 	handleStartDebugging(args: any) { return this.record('start', args); }
-	handleStopDebugging() { return this.record('stop', {}); }
+	handleStopDebugging(args?: any) { return this.record('stop', args ?? {}); }
 	handleStepOver() { return this.record('stepOver', {}); }
 	handleStepInto() { return this.record('stepInto', {}); }
 	handleStepOut() { return this.record('stepOut', {}); }
 	handleContinue() { return this.record('continue', {}); }
 	handlePause() { return this.record('pause', {}); }
-	handleRestart() { return this.record('restart', {}); }
+	handleRestart(args?: any) { return this.record('restart', args ?? {}); }
 	handleAddBreakpoint(args: any) { return this.record('addBp', args); }
 	handleAddLogpoint(args: any) { return this.record('addLp', args); }
 	handleRemoveBreakpoint(args: any) { return this.record('removeBp', args); }
 	handleClearAllBreakpoints() { return this.record('clearBp', {}); }
 	handleListBreakpoints() { return this.record('listBp', {}); }
+	handleGetDebugState(args?: any) { return this.record('debugState', args ?? {}); }
 	handleGetVariables(args: any) { return this.record('vars', args); }
 	handleListVariableNames(args?: any) { return this.record('varNames', args ?? {}); }
 	handleEvaluateExpression(args: any) { return this.record('eval', args); }
@@ -144,6 +145,64 @@ suite('Multi-window routing', () => {
 
 		assert.strictEqual(result, 'A:addLp');
 		assert.strictEqual(handlerB.calls.length, 0);
+	});
+
+	test('get_debug_state routes by fileFullPath before any start_debugging', async () => {
+		const repoA = path.join(dir, 'repoA');
+		const repoB = path.join(dir, 'repoB');
+		const handlerA = new RecordingHandler('A');
+		const handlerB = new RecordingHandler('B');
+		await startWindow('a.json', [repoA], handlerA);
+		await startWindow('b.json', [repoB], handlerB);
+
+		const routing = new RoutingDebuggingHandler(new WorkspaceRegistry(process.pid, dir));
+		const result = await routing.handleGetDebugState({ fileFullPath: path.join(repoA, 'src', 'y.py') });
+
+		assert.strictEqual(result, 'A:debugState');
+		assert.strictEqual(handlerB.calls.length, 0);
+	});
+
+	test('stop_debugging routes by fileFullPath before any start_debugging', async () => {
+		const repoA = path.join(dir, 'repoA');
+		const repoB = path.join(dir, 'repoB');
+		const handlerA = new RecordingHandler('A');
+		const handlerB = new RecordingHandler('B');
+		await startWindow('a.json', [repoA], handlerA);
+		await startWindow('b.json', [repoB], handlerB);
+
+		const routing = new RoutingDebuggingHandler(new WorkspaceRegistry(process.pid, dir));
+		const result = await routing.handleStopDebugging({ fileFullPath: path.join(repoB, 'src', 'z.py') });
+
+		assert.strictEqual(result, 'B:stop');
+		assert.strictEqual(handlerA.calls.length, 0);
+	});
+
+	test('restart_debugging routes by fileFullPath before any start_debugging', async () => {
+		const repoA = path.join(dir, 'repoA');
+		const repoB = path.join(dir, 'repoB');
+		const handlerA = new RecordingHandler('A');
+		const handlerB = new RecordingHandler('B');
+		await startWindow('a.json', [repoA], handlerA);
+		await startWindow('b.json', [repoB], handlerB);
+
+		const routing = new RoutingDebuggingHandler(new WorkspaceRegistry(process.pid, dir));
+		const result = await routing.handleRestart({ fileFullPath: path.join(repoA, 'src', 'y.py') });
+
+		assert.strictEqual(result, 'A:restart');
+		assert.strictEqual(handlerB.calls.length, 0);
+	});
+
+	test('get_debug_state without a hint reuses the established target', async () => {
+		const repoA = path.join(dir, 'repoA');
+		const handlerA = new RecordingHandler('A');
+		await startWindow('a.json', [repoA], handlerA);
+
+		const routing = new RoutingDebuggingHandler(new WorkspaceRegistry(process.pid, dir));
+		await routing.handleStartDebugging({ fileFullPath: path.join(repoA, 'm.py'), workingDirectory: repoA });
+		const result = await routing.handleGetDebugState();
+
+		assert.strictEqual(result, 'A:debugState');
+		assert.deepStrictEqual(handlerA.calls.map(c => c.op), ['start', 'debugState']);
 	});
 
 	test('throws a helpful error when no window owns the path', async () => {

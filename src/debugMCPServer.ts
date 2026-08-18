@@ -226,8 +226,16 @@ export class DebugMCPServer {
 
         // Stop debugging tool
         server.registerTool('stop_debugging', {
-            description: 'Stop the current debug session',
-        }, async () => this.runTool('stop_debugging', () => debuggingHandler.handleStopDebugging()));
+            description: 'Stop the current debug session. Accepts an optional fileFullPath routing hint for multi-window ' +
+                'setups when no session target is cached for this connection.',
+            inputSchema: {
+                fileFullPath: z.string().optional().describe(
+                    'Optional path hint for multi-window setups: route the command to the VS Code window whose workspace contains this file. ' +
+                    'Omit to reuse the session\'s established target.'
+                ),
+            },
+        }, async (args: { fileFullPath?: string }) =>
+            this.runTool('stop_debugging', () => debuggingHandler.handleStopDebugging(args)));
 
         // Step over tool
         server.registerTool('step_over', {
@@ -256,8 +264,16 @@ export class DebugMCPServer {
 
         // Restart debugging tool
         server.registerTool('restart_debugging', {
-            description: 'Restart the debug session from the beginning with the same configuration.',
-        }, async () => this.runTool('restart_debugging', () => debuggingHandler.handleRestart()));
+            description: 'Restart the debug session from the beginning with the same configuration. Accepts an optional ' +
+                'fileFullPath routing hint for multi-window setups when no session target is cached.',
+            inputSchema: {
+                fileFullPath: z.string().optional().describe(
+                    'Optional path hint for multi-window setups: route the command to the VS Code window whose workspace contains this file. ' +
+                    'Omit to reuse the session\'s established target.'
+                ),
+            },
+        }, async (args: { fileFullPath?: string }) =>
+            this.runTool('restart_debugging', () => debuggingHandler.handleRestart(args)));
 
         // Add breakpoint tool
         server.registerTool('add_breakpoint', {
@@ -330,6 +346,22 @@ export class DebugMCPServer {
             },
         }, async (args: { expression: string }) =>
             this.runTool('evaluate_expression', () => debuggingHandler.handleEvaluateExpression(args)));
+
+        // Get debug state tool
+        server.registerTool('get_debug_state', {
+            description: 'Query the current debugging session state without changing anything: whether a session is active, ' +
+                'where execution is paused (file, line, function), the call stack, and the breakpoints. ' +
+                'Also returns availableDebugTargets — the launch targets the "Run and Debug" dropdown would offer ' +
+                '(named configurations from .code-workspace / launch.json, plus the extension-based Default Configuration). ' +
+                'Use to orient yourself before stepping, inspecting variables, or choosing a configurationName for start_debugging.',
+            inputSchema: {
+                fileFullPath: z.string().optional().describe(
+                    'Optional path hint for multi-window setups: route the query to the VS Code window whose workspace contains this file. ' +
+                    'Omit to reuse the session\'s established target.'
+                ),
+            },
+        }, async (args: { fileFullPath?: string }) =>
+            this.runTool('get_debug_state', () => debuggingHandler.handleGetDebugState(args)));
     }
 
     /**

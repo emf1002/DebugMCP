@@ -10,43 +10,26 @@ import { IDebugConfigurationManager } from '../utils/debugConfigurationManager';
 /**
  * Regression matrix for handleStartDebugging.
  *
- * Covers four scenarios per language:
- *   1. pause-hit     — session reaches a breakpoint
- *   2. clean-run     — session runs to completion without pausing
- *   3. launch-error  — the debug adapter fails to start
- *   4. no-build      — config resolution fails (e.g. missing built assembly)
+ * The handler returns as soon as the start command is dispatched
+ * (asynchronous launch); it no longer blocks on session readiness, a
+ * breakpoint hit, or a timeout. This matrix verifies:
+ *   1. launch success — returns immediately with a "start command issued"
+ *      message (no wait, no readiness state).
+ *   2. launch failure — startDebugging returned false → error surfaced.
+ *   3. config failure — getDebugConfig threw (e.g. missing built assembly)
+ *      → error surfaced.
  *
- * Both the "launch" path (no testName) and the "test" path (testName + Testing
- * API) are exercised. The test path additionally guards the race between
- * waitForDebugSessionReady and the testing.debugAtCursor completion promise
- * — this is the regression that caused .NET test runs to hang past breakpoint
- * hit and past clean completion.
+ * Both the "launch" path (no testName) and the "test" path (testName +
+ * Testing API) are exercised. Post-launch monitoring is the responsibility
+ * of get_debug_state and the Debug Console.
  */
 
-interface Deferred<T> {
-    promise: Promise<T>;
-    resolve: (value: T) => void;
-    reject: (reason?: any) => void;
-}
-
-function deferred<T>(): Deferred<T> {
-    let resolve!: (value: T) => void;
-    let reject!: (reason?: any) => void;
-    const promise = new Promise<T>((res, rej) => {
-        resolve = res;
-        reject = rej;
-    });
-    return { promise, resolve, reject };
-}
-
-type ReadyState = 'stopped' | 'terminated' | 'timeout' | 'no-session';
-
 interface MockOpts {
-    readyState?: Deferred<ReadyState>;
     startResult?: boolean | Error;
     testDispatch?: TestDebugDispatch | Error;
     debugConfig?: string | vscode.DebugConfiguration | Error;
     language?: string;
+    activeSession?: boolean;
 }
 
 function makeMocks(opts: MockOpts) {
@@ -67,8 +50,7 @@ function makeMocks(opts: MockOpts) {
             // Default: never resolves runComplete unless caller provides one.
             return opts.testDispatch ?? { started: true, runComplete: new Promise<void>(() => { /* pending */ }) };
         },
-        waitForDebugSessionReady: () =>
-            opts.readyState?.promise ?? Promise.resolve('no-session' as ReadyState),
+        waitForDebugSessionReady: () => Promise.resolve('no-session' as const),
         getCurrentDebugState: async () => state,
         stopDebugging: async () => { /* noop */ },
         stepOver: async () => { /* noop */ },
@@ -83,7 +65,7 @@ function makeMocks(opts: MockOpts) {
         evaluateExpression: async () => ({}),
         getBreakpoints: () => [],
         clearAllBreakpoints: () => { /* noop */ },
-        hasActiveSession: async () => false,
+        hasActiveSession: async () => opts.activeSession ?? false,
         getActiveSession: () => undefined
     };
 
@@ -99,7 +81,8 @@ function makeMocks(opts: MockOpts) {
                 program: 'unused'
             };
         },
-        detectLanguageFromFilePath: () => opts.language ?? 'python'
+        detectLanguageFromFilePath: () => opts.language ?? 'python',
+        getAvailableDebugTargets: async () => []
     };
 
     return { executor, configManager };
@@ -124,47 +107,26 @@ const LANGUAGES: LangCase[] = [
 suite('handleStartDebugging regression matrix', () => {
 
     // -------------------------------------------------------------------------
-    // Launch path (no testName) — uses executor.startDebugging + readyPromise.
+    // Launch path (no testName) — uses executor.startDebugging and returns
+    // immediately with an "async launch" message.
     // -------------------------------------------------------------------------
     for (const lang of LANGUAGES) {
 
-        test(`[${lang.label}] launch path: pause-hit returns 'stopped'`, async () => {
-            const ready = deferred<ReadyState>();
+        test(`[${lang.label}] launch path: returns immediately with start command issued`, async () => {
             const { executor, configManager } = makeMocks({
-                readyState: ready,
                 startResult: true,
                 language: lang.debuggerType
             });
             const handler = new DebuggingHandler(executor, configManager, 30);
 
-            const pending = handler.handleStartDebugging({
+            const result = await handler.handleStartDebugging({
                 fileFullPath: lang.file,
                 workingDirectory: '/repo'
             });
-            ready.resolve('stopped');
-            const result = await pending;
 
-            assert.match(result, /stopped at breakpoint/);
+            assert.match(result, /start command issued/);
             assert.match(result, new RegExp(escapeRegex(lang.file)));
-        });
-
-        test(`[${lang.label}] launch path: clean-run returns 'terminated'`, async () => {
-            const ready = deferred<ReadyState>();
-            const { executor, configManager } = makeMocks({
-                readyState: ready,
-                startResult: true,
-                language: lang.debuggerType
-            });
-            const handler = new DebuggingHandler(executor, configManager, 30);
-
-            const pending = handler.handleStartDebugging({
-                fileFullPath: lang.file,
-                workingDirectory: '/repo'
-            });
-            ready.resolve('terminated');
-            const result = await pending;
-
-            assert.match(result, /ran to completion without stopping/);
+            assert.match(result, /asynchronously/);
         });
 
         test(`[${lang.label}] launch path: launch-error surfaces failure`, async () => {
@@ -183,6 +145,26 @@ suite('handleStartDebugging regression matrix', () => {
             );
         });
     }
+
+    // -------------------------------------------------------------------------
+    // Duplicate-launch guard: refuse to start while a session is already active.
+    // -------------------------------------------------------------------------
+    test('[Python] launch path: rejects when a debug session is already active', async () => {
+        const { executor, configManager } = makeMocks({
+            startResult: true,
+            activeSession: true,
+            language: 'python'
+        });
+        const handler = new DebuggingHandler(executor, configManager, 30);
+
+        await assert.rejects(
+            handler.handleStartDebugging({
+                fileFullPath: '/repo/src/app.py',
+                workingDirectory: '/repo'
+            }),
+            /already active.*stop_debugging/i
+        );
+    });
 
     // -------------------------------------------------------------------------
     // No-build / config-resolution failure (most relevant to .NET coreclr,
@@ -205,62 +187,26 @@ suite('handleStartDebugging regression matrix', () => {
     });
 
     // -------------------------------------------------------------------------
-    // Test path (testName) — uses executor.debugTestAtCursor and races
-    // readyPromise against the test-run completion promise.
+    // Test path (testName) — dispatches via the Testing API, then returns
+    // immediately; does not race runComplete against session readiness.
     // -------------------------------------------------------------------------
     for (const lang of LANGUAGES) {
 
-        test(`[${lang.label}] test path: pause-hit wins race, returns 'stopped'`, async () => {
-            const ready = deferred<ReadyState>();
-            const runComplete = deferred<void>();
+        test(`[${lang.label}] test path: returns immediately after dispatching test`, async () => {
             const { executor, configManager } = makeMocks({
-                readyState: ready,
-                testDispatch: { started: true, runComplete: runComplete.promise },
+                testDispatch: { started: true, runComplete: new Promise<void>(() => { /* pending */ }) },
                 language: lang.debuggerType
             });
             const handler = new DebuggingHandler(executor, configManager, 30);
 
-            const pending = handler.handleStartDebugging({
+            const result = await handler.handleStartDebugging({
                 fileFullPath: lang.file,
                 workingDirectory: '/repo',
                 testName: 'My_Test'
             });
-            // Breakpoint hits BEFORE the test-run completes (the .NET case
-            // where awaiting testing.debugAtCursor would have hung).
-            ready.resolve('stopped');
-            const result = await pending;
 
-            assert.match(result, /stopped at breakpoint/);
+            assert.match(result, /start command issued/);
             assert.match(result, /test: My_Test/);
-            // Cleanup: avoid an unhandled-rejection-like dangling promise.
-            runComplete.resolve();
-        });
-
-        test(`[${lang.label}] test path: clean-run wins race, returns 'terminated'`, async () => {
-            const neverReady = deferred<ReadyState>(); // simulate no terminate event
-            const runComplete = deferred<void>();
-            const { executor, configManager } = makeMocks({
-                readyState: neverReady,
-                testDispatch: { started: true, runComplete: runComplete.promise },
-                language: lang.debuggerType
-            });
-            const handler = new DebuggingHandler(executor, configManager, 30);
-
-            const pending = handler.handleStartDebugging({
-                fileFullPath: lang.file,
-                workingDirectory: '/repo',
-                testName: 'My_Test'
-            });
-            // Test runs to completion without ever pausing AND without
-            // waitForDebugSessionReady firing 'terminated' — this is the
-            // .NET parent/child-session edge case. Must still return promptly.
-            runComplete.resolve();
-            const result = await pending;
-
-            assert.match(result, /ran to completion without stopping/);
-            assert.match(result, /test: My_Test/);
-            // Cleanup the dangling readyPromise.
-            neverReady.resolve('timeout');
         });
 
         test(`[${lang.label}] test path: launch-error surfaces failure`, async () => {
@@ -280,34 +226,6 @@ suite('handleStartDebugging regression matrix', () => {
             );
         });
     }
-
-    // -------------------------------------------------------------------------
-    // Race tie-breakers — same readyState resolved at the same microtask tick
-    // must not produce a hang or double-resolve. Use Promise.all to ensure
-    // we don't regress to awaiting the slower promise.
-    // -------------------------------------------------------------------------
-    test('test path: readyPromise resolving first beats already-pending runComplete', async () => {
-        const ready = deferred<ReadyState>();
-        const runComplete = deferred<void>();
-        const { executor, configManager } = makeMocks({
-            readyState: ready,
-            testDispatch: { started: true, runComplete: runComplete.promise },
-            language: 'coreclr'
-        });
-        const handler = new DebuggingHandler(executor, configManager, 30);
-
-        const pending = handler.handleStartDebugging({
-            fileFullPath: '/repo/AppTests.cs',
-            workingDirectory: '/repo',
-            testName: 'Foo'
-        });
-        ready.resolve('stopped');
-        // Even if runComplete later resolves, the handler must already be done.
-        runComplete.resolve();
-
-        const result = await pending;
-        assert.match(result, /stopped at breakpoint/);
-    });
 });
 
 function escapeRegex(s: string): string {

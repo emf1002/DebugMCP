@@ -82,7 +82,7 @@ export class ControlServer {
 			case 'handleStartDebugging':
 				return this.handler.handleStartDebugging(args);
 			case 'handleStopDebugging':
-				return this.handler.handleStopDebugging();
+				return this.handler.handleStopDebugging(args);
 			case 'handleStepOver':
 				return this.handler.handleStepOver();
 			case 'handleStepInto':
@@ -94,7 +94,7 @@ export class ControlServer {
 			case 'handlePause':
 				return this.handler.handlePause();
 			case 'handleRestart':
-				return this.handler.handleRestart();
+				return this.handler.handleRestart(args);
 			case 'handleAddBreakpoint':
 				return this.handler.handleAddBreakpoint(args);
 			case 'handleAddLogpoint':
@@ -105,6 +105,8 @@ export class ControlServer {
 				return this.handler.handleClearAllBreakpoints();
 			case 'handleListBreakpoints':
 				return this.handler.handleListBreakpoints();
+			case 'handleGetDebugState':
+				return this.handler.handleGetDebugState(args);
 			case 'handleGetVariables':
 				return this.handler.handleGetVariables(args);
 			case 'handleListVariableNames':

@@ -172,8 +172,8 @@ export class RoutingDebuggingHandler implements IDebuggingHandler {
 		return this.forward('handleStartDebugging', args, args.workingDirectory || args.fileFullPath);
 	}
 
-	public handleStopDebugging(): Promise<string> {
-		return this.forward('handleStopDebugging', {});
+	public handleStopDebugging(args: { fileFullPath?: string } = {}): Promise<string> {
+		return this.forward('handleStopDebugging', args, args.fileFullPath);
 	}
 
 	public handleStepOver(): Promise<string> {
@@ -196,8 +196,8 @@ export class RoutingDebuggingHandler implements IDebuggingHandler {
 		return this.forward('handlePause', {});
 	}
 
-	public handleRestart(): Promise<string> {
-		return this.forward('handleRestart', {});
+	public handleRestart(args: { fileFullPath?: string } = {}): Promise<string> {
+		return this.forward('handleRestart', args, args.fileFullPath);
 	}
 
 	public handleAddBreakpoint(args: { fileFullPath: string; line: number; condition?: string }): Promise<string> {
@@ -218,6 +218,10 @@ export class RoutingDebuggingHandler implements IDebuggingHandler {
 
 	public handleListBreakpoints(): Promise<string> {
 		return this.forward('handleListBreakpoints', {});
+	}
+
+	public handleGetDebugState(args: { fileFullPath?: string } = {}): Promise<string> {
+		return this.forward('handleGetDebugState', args, args.fileFullPath);
 	}
 
 	public handleGetVariables(args: { variableNames: string[]; scope?: 'local' | 'global' | 'all' }): Promise<string> {

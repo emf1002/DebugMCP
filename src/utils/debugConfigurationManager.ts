@@ -5,6 +5,23 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 /**
+ * A target that `start_debugging` can launch, mirroring what the "Run and
+ * Debug" dropdown in VS Code would offer for the current workspace:
+ * - `workspace`: configurations from the workspace-level launch settings —
+ *   a single-root `.vscode/launch.json`, or the `launch` section of a
+ *   multi-root `.code-workspace` file.
+ * - `folder`: configurations from a specific workspace folder's
+ *   `.vscode/launch.json` (multi-root workspaces only).
+ * - `default`: DebugMCP's auto-launch, which picks a debugger type from the
+ *   source file's extension.
+ */
+export interface DebugTargetInfo {
+    name: string;
+    source: 'workspace' | 'folder' | 'default';
+    debuggerTypes?: string[];
+}
+
+/**
  * Interface for configuration management operations
  */
 export interface IDebugConfigurationManager {
@@ -14,6 +31,7 @@ export interface IDebugConfigurationManager {
         configurationName?: string
     ): Promise<string | vscode.DebugConfiguration>;
     detectLanguageFromFilePath(fileFullPath: string): string;
+    getAvailableDebugTargets(): Promise<DebugTargetInfo[]>;
 }
 
 /**
@@ -61,10 +79,21 @@ export class DebugConfigurationManager implements IDebugConfigurationManager {
         fileFullPath: string,
         configurationName?: string
     ): Promise<string | vscode.DebugConfiguration> {
-        // Named launch.json config — let VS Code resolve it itself.
+        // Named launch config — resolve from workspace-level (.code-workspace) first.
         if (configurationName &&
             configurationName.trim() !== '' &&
             configurationName !== DebugConfigurationManager.AUTO_LAUNCH_CONFIG) {
+            // Multi-root workspaces can define configurations in the `.code-workspace`
+            // file's `launch` section. VS Code only resolves a config *by name* against
+            // the folder passed to startDebugging, so a workspace-level config would be
+            // missed. Hand back the resolved object in that case.
+            const workspaceConfig = vscode.workspace.getConfiguration('launch');
+            const configurations = workspaceConfig.get<vscode.DebugConfiguration[]>('configurations') ?? [];
+            const match = configurations.find(c => c && c.name === configurationName);
+            if (match) {
+                return { ...match };
+            }
+            // Folder-level launch.json / dynamic provider config — let VS Code resolve it itself.
             return configurationName;
         }
 
@@ -185,5 +214,46 @@ export class DebugConfigurationManager implements IDebugConfigurationManager {
     public detectLanguageFromFilePath(fileFullPath: string): string {
         const extension = path.extname(fileFullPath).toLowerCase();
         return DebugConfigurationManager.LANGUAGE_MAP[extension] || 'python';
+    }
+
+    /**
+     * List the debug targets the "Run and Debug" dropdown would offer for the
+     * current workspace.
+     *
+     * Uses `workspace.getConfiguration('launch')` rather than parsing launch.json
+     * files directly, so it automatically covers both single-root `.vscode/launch.json`
+     * and the `launch` section of a multi-root `.code-workspace` file. In multi-root
+     * workspaces we also enumerate each folder's own launch.json. A synthetic
+     * `default` entry advertises DebugMCP's extension-based auto-launch.
+     */
+    public async getAvailableDebugTargets(): Promise<DebugTargetInfo[]> {
+        const targets: DebugTargetInfo[] = [];
+        const seen = new Set<string>();
+
+        const collect = (config: vscode.WorkspaceConfiguration, source: DebugTargetInfo['source']): void => {
+            const configurations = config.get<{ name?: string }[]>('configurations') || [];
+            for (const c of configurations) {
+                if (c && typeof c.name === 'string' && c.name.trim() && !seen.has(c.name.trim())) {
+                    seen.add(c.name.trim());
+                    targets.push({ name: c.name.trim(), source });
+                }
+            }
+        };
+
+        // Workspace-level: single-root launch.json, or the .code-workspace `launch` section.
+        collect(vscode.workspace.getConfiguration('launch'), 'workspace');
+
+        // Multi-root: each folder's own .vscode/launch.json.
+        for (const folder of vscode.workspace.workspaceFolders ?? []) {
+            collect(vscode.workspace.getConfiguration('launch', folder.uri), 'folder');
+        }
+
+        targets.push({
+            name: DebugConfigurationManager.AUTO_LAUNCH_CONFIG,
+            source: 'default',
+            debuggerTypes: [...new Set(Object.values(DebugConfigurationManager.LANGUAGE_MAP))],
+        });
+
+        return targets;
     }
 }

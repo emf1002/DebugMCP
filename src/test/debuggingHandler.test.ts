@@ -203,4 +203,37 @@ suite('DebuggingHandler waitForStateChange (event-driven)', () => {
         assert.ok(elapsed >= 200, `should wait for the ~300ms timeout, only took ${elapsed}ms`);
         assert.ok(elapsed < 3000, `timeout should bound the wait, took ${elapsed}ms`);
     });
+
+    test('handleGetDebugState returns the current debug state without changing it', async () => {
+        const executor = makeExecutor(() => lineState(10));
+        const configManager = {
+            getAvailableDebugTargets: async () => [
+                { name: 'Default Configuration', source: 'default' }
+            ]
+        };
+        const handler = new DebuggingHandler(executor, configManager as any, 30);
+
+        const result = await handler.handleGetDebugState();
+
+        assert.match(result, /"sessionActive": true/, `expected an active session, got: ${result}`);
+        assert.match(result, /"currentLine": 10/, `expected line 10, got: ${result}`);
+        assert.match(result, /"fileName": "file.js"/, `expected file name, got: ${result}`);
+        assert.match(result, /"availableDebugTargets"/, `expected available targets, got: ${result}`);
+        assert.match(result, /"source": "default"/, `expected default target source, got: ${result}`);
+    });
+
+    test('handleGetDebugState reports an inactive session without throwing', async () => {
+        const executor = makeExecutor(() => lineState(0, false));
+        const configManager = {
+            getAvailableDebugTargets: async () => [
+                { name: 'Default Configuration', source: 'default' }
+            ]
+        };
+        const handler = new DebuggingHandler(executor, configManager as any, 30);
+
+        const result = await handler.handleGetDebugState();
+
+        assert.match(result, /"sessionActive": false/, `expected an inactive session, got: ${result}`);
+        assert.match(result, /"availableDebugTargets"/, `expected available targets, got: ${result}`);
+    });
 });

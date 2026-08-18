@@ -250,8 +250,29 @@ export class DebuggingExecutor implements IDebuggingExecutor {
             if (activeSession) {
                 await vscode.debug.stopDebugging(activeSession);
             }
+            // With `console: integratedTerminal` the debuggee process belongs to a
+            // terminal shell rather than the debug adapter, so adapters like
+            // java-debug leave the JVM running after the session stops. Interrupt
+            // the debug terminal so the process is terminated alongside the session.
+            await this.interruptDebuggeeTerminals(activeSession?.name);
         } catch (error) {
             throw new Error(`Failed to stop debugging: ${error}`);
+        }
+    }
+
+    /**
+     * Send Ctrl+C to integrated terminals that run a debuggee (named after the
+     * session configuration, or the java-debug `Debug:`/`Run:` convention).
+     */
+    private async interruptDebuggeeTerminals(sessionName?: string): Promise<void> {
+        for (const terminal of vscode.window.terminals) {
+            const name = terminal.name || '';
+            const isDebugTerminal = name.startsWith('Debug:') ||
+                name.startsWith('Run:') ||
+                (sessionName !== undefined && name === sessionName);
+            if (isDebugTerminal) {
+                terminal.sendText('\u0003'); // Ctrl+C
+            }
         }
     }
 
@@ -317,7 +338,24 @@ export class DebuggingExecutor implements IDebuggingExecutor {
      */
     public async restart(): Promise<void> {
         try {
-            await vscode.commands.executeCommand('workbench.action.debug.restart');
+            const session = vscode.debug.activeDebugSession;
+            if (!session) {
+                return;
+            }
+            const configuration = session.configuration;
+
+            // `workbench.action.debug.restart` is unreliable for
+            // `console: integratedTerminal` — the new debuggee fails to launch in
+            // the reused terminal (JDI TransportTimeoutException). Instead, stop
+            // the current session cleanly (which also interrupts the debug
+            // terminal so the JVM does not linger), give the old process a moment
+            // to fully exit, then start a fresh session with the same config.
+            await this.stopDebugging(session);
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            const started = await vscode.debug.startDebugging(undefined, configuration);
+            if (!started) {
+                throw new Error('Failed to launch the restarted debug session');
+            }
         } catch (error) {
             throw new Error(`Failed to restart: ${error}`);
         }

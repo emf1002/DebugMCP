@@ -52,7 +52,7 @@ DebugMCP is an MCP server that gives AI coding agents full control over the VS C
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
-| **start_debugging** | Start a debug session for a source code file | `fileFullPath` (required)<br>`workingDirectory` (required)<br>`testName` (optional)<br>`configurationName` (optional) |
+| **start_debugging** | Dispatch the debug start command for a source code file and return immediately — the launch is asynchronous. Poll `get_debug_state` for the session status and read the Debug Console for logs. | `fileFullPath` (required)<br>`workingDirectory` (required)<br>`testName` (optional)<br>`configurationName` (optional) |
 | **stop_debugging** | Stop the current debug session | None |
 | **step_over** | Execute the next line (step over function calls) | None |
 | **step_into** | Step into function calls | None |
@@ -65,6 +65,7 @@ DebugMCP is an MCP server that gives AI coding agents full control over the VS C
 | **remove_breakpoint** | Remove a breakpoint from a specific line | `fileFullPath` (required)<br>`line` (required) |
 | **clear_all_breakpoints** | Remove all breakpoints at once | None |
 | **list_breakpoints** | List all active breakpoints | None |
+| **get_debug_state** | Query the current debugging session state without changing anything: whether a session is active, where execution is paused (file, line, function), the call stack, and the breakpoints | `fileFullPath` (optional, routing hint for multi-window setups) |
 | **list_variable_names** | List names and types of variables in scope, without reading any values | `scope` (optional: 'local', 'global', 'all') |
 | **get_variables_values** | Get the values of specifically named variables at the current execution point | `variableNames` (required, e.g. `["user","response"]`)<br>`scope` (optional: 'local', 'global', 'all') |
 | **evaluate_expression** | Evaluate an expression in debug context | `expression` (required) |

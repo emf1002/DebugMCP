@@ -12,18 +12,19 @@ import { redactExpressionResult, redactVariableValue, REDACTION_NOTICE } from '.
  */
 export interface IDebuggingHandler {
     handleStartDebugging(args: { fileFullPath: string; workingDirectory: string; testName?: string; configurationName?: string }): Promise<string>;
-    handleStopDebugging(): Promise<string>;
+    handleStopDebugging(args?: { fileFullPath?: string }): Promise<string>;
     handleStepOver(): Promise<string>;
     handleStepInto(): Promise<string>;
     handleStepOut(): Promise<string>;
     handleContinue(): Promise<string>;
     handlePause(): Promise<string>;
-    handleRestart(): Promise<string>;
+    handleRestart(args?: { fileFullPath?: string }): Promise<string>;
     handleAddBreakpoint(args: { fileFullPath: string; line: number; condition?: string }): Promise<string>;
     handleAddLogpoint(args: { fileFullPath: string; line: number; logMessage: string; condition?: string }): Promise<string>;
     handleRemoveBreakpoint(args: { fileFullPath: string; line: number }): Promise<string>;
     handleClearAllBreakpoints(): Promise<string>;
     handleListBreakpoints(): Promise<string>;
+    handleGetDebugState(args?: { fileFullPath?: string }): Promise<string>;
     handleGetVariables(args: { variableNames: string[]; scope?: 'local' | 'global' | 'all' }): Promise<string>;
     handleListVariableNames(args?: { scope?: 'local' | 'global' | 'all' }): Promise<string>;
     handleEvaluateExpression(args: { expression: string }): Promise<string>;
@@ -62,15 +63,18 @@ export class DebuggingHandler implements IDebuggingHandler {
         try {
             logger.info(`handleStartDebugging: file=${fileFullPath} test=${testName ?? '<none>'} config=${configurationName ?? '<auto>'}`);
 
-            // Start listening BEFORE we trigger the debug session, otherwise
-            // `onDidStartDebugSession` / `onDidChangeActiveStackItem` can fire
-            // during the trigger call (testing.debugAtCursor / vscode.debug.startDebugging
-            // can resolve only after the session is already up) and we'd miss them.
-            const readyPromise = this.executor.waitForDebugSessionReady(this.timeoutInSeconds * 1000);
+            // Refuse to start a second session while one is already active —
+            // duplicate launches of a long-running target are ambiguous (a
+            // second instance may conflict on ports) and a subsequent stop only
+            // affects the active session. The agent should stop first.
+            if (await this.executor.hasActiveSession()) {
+                throw new Error(
+                    'A debug session is already active. Stop it first with stop_debugging before starting a new one.'
+                );
+            }
 
             let started: boolean;
             let configDescription: string;
-            let testRunComplete: Promise<void> | undefined;
 
             if (testName && !hasExplicitConfig) {
                 // Route through VS Code's Testing API. This works for any language
@@ -78,7 +82,6 @@ export class DebuggingHandler implements IDebuggingHandler {
                 // child-process attach for runners like `dotnet test`.
                 const dispatch = await this.executor.debugTestAtCursor(fileFullPath, testName);
                 started = dispatch.started;
-                testRunComplete = dispatch.runComplete;
                 configDescription = `testing.debugAtCursor (test: ${testName})`;
             } else {
                 const debugConfig = await this.configManager.getDebugConfig(
@@ -92,32 +95,17 @@ export class DebuggingHandler implements IDebuggingHandler {
             }
 
             if (started) {
-                // Race the readiness signal against the test run completion. For .NET
-                // (and any runner where onDidTerminateDebugSession doesn't fire
-                // reliably for parent/child sessions), the test-run-complete signal
-                // is what tells us a clean run finished without ever pausing.
-                const readyState = testRunComplete
-                    ? await Promise.race([
-                        readyPromise,
-                        testRunComplete.then(() => 'terminated' as const)
-                    ])
-                    : await readyPromise;
-
-                logger.info(`handleStartDebugging: readyState=${readyState}, fetching current state…`);
+                // The start command was accepted by the terminal / debug adapter.
+                // We intentionally do NOT block on session readiness here — an
+                // application (e.g. a Spring Boot server) may run for a long time
+                // without ever pausing, so blocking would stall the caller and can
+                // exceed the MCP request timeout. The agent should poll
+                // get_debug_state for the active session and read the Debug Console
+                // for logs after launch instead.
                 const testInfo = testName ? ` (test: ${testName})` : '';
-                const currentState = await this.executor.getCurrentDebugState(this.numNextLines);
-                logger.info('handleStartDebugging: got current state, returning response');
-
-                switch (readyState) {
-                    case 'stopped':
-                        return `Debug session stopped at breakpoint for: ${fileFullPath} using ${configDescription}${testInfo}. Current state: ${currentState.toString()}`;
-                    case 'terminated':
-                        return `Debug session for ${fileFullPath} ran to completion without stopping (no breakpoint hit). Using ${configDescription}${testInfo}. Final state: ${currentState.toString()}`;
-                    case 'no-session':
-                        throw new Error('Debug session failed to start within the timeout period. Make sure the appropriate language extension is installed and any required build step succeeded.');
-                    case 'timeout':
-                        return `Debug session is running but did not stop or terminate within the timeout for: ${fileFullPath} using ${configDescription}${testInfo}. Current state: ${currentState.toString()}`;
-                }
+                return `Debug session start command issued for: ${fileFullPath} using ${configDescription}${testInfo}. ` +
+                    `The application is launching asynchronously. Use get_debug_state to check whether the session is active ` +
+                    `and where execution is paused, and consult the Debug Console for logs.`;
             } else {
                 throw new Error('Failed to start debug session. Make sure the appropriate language extension is installed.');
             }
@@ -129,7 +117,9 @@ export class DebuggingHandler implements IDebuggingHandler {
     /**
      * Stop the current debugging session
      */
-    public async handleStopDebugging(): Promise<string> {
+    public async handleStopDebugging(args?: { fileFullPath?: string }): Promise<string> {
+        // args.fileFullPath is a routing hint consumed by the routing layer;
+        // stopping targets the window's active session, so it is unused here.
         try {
             if (!(await this.executor.hasActiveSession())) {
                 return 'No active debug session to stop';
@@ -282,18 +272,19 @@ export class DebuggingHandler implements IDebuggingHandler {
     /**
      * Restart the debugging session
      */
-    public async handleRestart(): Promise<string> {
+    public async handleRestart(args?: { fileFullPath?: string }): Promise<string> {
+        // args.fileFullPath is a routing hint for multi-window setups and is
+        // consumed by the routing layer, not used here.
         try {
             if (!(await this.executor.hasActiveSession())) {
                 throw new Error('No active debug session to restart');
             }
 
             await this.executor.restart();
-            
-            // Wait for debugger to restart
-            await new Promise(resolve => setTimeout(resolve, this.executionDelay));
 
-            return 'Debug session restarted successfully';
+            return 'Debug session restart command issued. The application is restarting asynchronously — ' +
+                'use get_debug_state to confirm the new session is active and where execution is paused, ' +
+                'and consult the Debug Console for logs.';
         } catch (error) {
             throw new Error(`Error restarting debug session: ${error}`);
         }
@@ -667,6 +658,21 @@ export class DebuggingHandler implements IDebuggingHandler {
         } catch (error) {
             throw new Error(`Error evaluating expression: ${error}`);
         }
+    }
+
+    /**
+     * Get the current debug state as a structured JSON string.
+     * Read-only: does not change the debugger in any way.
+     * Also reports the available launch targets (what the "Run and Debug"
+     * dropdown would offer), so an agent can pick a configurationName.
+     * The optional fileFullPath is a routing hint for multi-window setups and
+     * is consumed by the routing layer, not used here.
+     */
+    public async handleGetDebugState(): Promise<string> {
+        const state = await this.executor.getCurrentDebugState(this.numNextLines);
+        const stateJson = JSON.parse(state.toString()) as Record<string, unknown>;
+        stateJson.availableDebugTargets = await this.configManager.getAvailableDebugTargets();
+        return JSON.stringify(stateJson, null, 2);
     }
 
     /**
