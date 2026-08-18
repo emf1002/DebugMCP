@@ -168,6 +168,11 @@ export class DebugMCPServer {
             // standard skills directories for harnesses that load skills.
             instructions: 'These tools drive the VS Code debugger to investigate bugs, failing tests, ' +
                 'wrong/null values and other "it doesn\'t work" reports by stepping through code. ' +
+                'Workflow: call get_debug_state first to see whether a session is active and what launch targets exist; ' +
+                'then start_debugging, optionally picking a configurationName from availableDebugTargets. ' +
+                'Launch and restart return asynchronously — confirm with get_debug_state and read the Debug Console for logs. ' +
+                'stop_debugging also terminates the process running in the integrated terminal. ' +
+                'In multi-window setups, pass fileFullPath to route commands to the right VS Code window. ' +
                 'The companion "debug-live" Agent Skill describes the full interactive workflow: ' +
                 'when to set breakpoints, how to step and inspect state, and how to do root-cause analysis.',
         });
@@ -205,9 +210,11 @@ export class DebugMCPServer {
     private setupTools(server: McpServer, debuggingHandler: IDebuggingHandler) {
         // Start debugging tool
         server.registerTool('start_debugging', {
-            description: 'Start a VS Code debug session for a source file, optionally for a single test method. ' +
+            description: 'Dispatch the debug start command for a source file and return immediately — the launch is asynchronous. ' +
                 'Use when investigating bugs, failing tests, wrong/null variable values, unexpected runtime behavior, ' +
-                'or any "it doesn\'t work" report. See the "debug-live" skill for the full investigation workflow.',
+                'or any "it doesn\'t work" report. Confirm the session with get_debug_state; a session that is already ' +
+                'active will be rejected — stop_debugging first. Optionally debug a single test via testName, or pick a ' +
+                'configurationName from availableDebugTargets. See the "debug-live" skill for the full investigation workflow.',
             inputSchema: {
                 fileFullPath: z.string().describe('Full path to the source code file to debug'),
                 workingDirectory: z.string().describe('Working directory for the debug session'),
@@ -226,8 +233,9 @@ export class DebugMCPServer {
 
         // Stop debugging tool
         server.registerTool('stop_debugging', {
-            description: 'Stop the current debug session. Accepts an optional fileFullPath routing hint for multi-window ' +
-                'setups when no session target is cached for this connection.',
+            description: 'Stop the current debug session and terminate the debuggee process running in the integrated ' +
+                'terminal. Accepts an optional fileFullPath routing hint for multi-window setups when no session target ' +
+                'is cached for this connection.',
             inputSchema: {
                 fileFullPath: z.string().optional().describe(
                     'Optional path hint for multi-window setups: route the command to the VS Code window whose workspace contains this file. ' +
@@ -249,7 +257,7 @@ export class DebugMCPServer {
 
         // Step out tool
         server.registerTool('step_out', {
-            description: 'Step out of the current function',
+            description: 'Step out of the current function.',
         }, async () => this.runTool('step_out', () => debuggingHandler.handleStepOut()));
 
         // Continue execution tool
@@ -264,7 +272,8 @@ export class DebugMCPServer {
 
         // Restart debugging tool
         server.registerTool('restart_debugging', {
-            description: 'Restart the debug session from the beginning with the same configuration. Accepts an optional ' +
+            description: 'Restart the debug session from the beginning with the same configuration and return immediately — ' +
+                'the restart is asynchronous; confirm the new session with get_debug_state. Accepts an optional ' +
                 'fileFullPath routing hint for multi-window setups when no session target is cached.',
             inputSchema: {
                 fileFullPath: z.string().optional().describe(

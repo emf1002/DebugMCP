@@ -53,13 +53,13 @@ DebugMCP is an MCP server that gives AI coding agents full control over the VS C
 | Tool | Description | Parameters |
 |------|-------------|------------|
 | **start_debugging** | Dispatch the debug start command for a source code file and return immediately — the launch is asynchronous. Poll `get_debug_state` for the session status and read the Debug Console for logs. | `fileFullPath` (required)<br>`workingDirectory` (required)<br>`testName` (optional)<br>`configurationName` (optional) |
-| **stop_debugging** | Stop the current debug session | None |
+| **stop_debugging** | Stop the current debug session and terminate the debuggee process running in the integrated terminal | `fileFullPath` (optional, routing hint) |
 | **step_over** | Execute the next line (step over function calls) | None |
 | **step_into** | Step into function calls | None |
 | **step_out** | Step out of the current function | None |
 | **continue_execution** | Continue until next breakpoint | None |
 | **pause_execution** | Interrupt a freely-running program and stop at its current location (no breakpoint needed) | None |
-| **restart_debugging** | Restart the current debug session | None |
+| **restart_debugging** | Restart the debug session with the same configuration and return immediately (asynchronous; confirm with `get_debug_state`) | `fileFullPath` (optional, routing hint) |
 | **add_breakpoint** | Add a breakpoint at a specific line (optionally conditional) | `fileFullPath` (required)<br>`line` (required, 1-based)<br>`condition` (optional) |
 | **add_logpoint** | Add a logpoint that logs a message (instead of pausing) when a line is reached | `fileFullPath` (required)<br>`line` (required, 1-based)<br>`logMessage` (required, `{expr}` interpolated)<br>`condition` (optional) |
 | **remove_breakpoint** | Remove a breakpoint from a specific line | `fileFullPath` (required)<br>`line` (required) |
