@@ -31,6 +31,7 @@ export interface MCPServerConfig {
     disabled?: boolean;
     timeout?: number;
     tools?: string[];
+    description?: string;
 }
 
 export function upsertCodexDebugMCPConfig(configContent: string, mcpServerUrl: string): string {
@@ -333,6 +334,30 @@ export class AgentConfigurationManager {
                 displayName: 'Codex',
                 configPath: this.getCodexConfigPath(),
                 configFormat: 'toml'
+            },
+            {
+                id: 'qoder',
+                name: 'qoder',
+                displayName: 'Qoder',
+                configPath: path.join(os.homedir(), '.qoder', 'mcp.json'),
+                configFormat: 'json',
+                mcpServerFieldName: 'mcpServers'
+            },
+            {
+                id: 'codebuddy',
+                name: 'codebuddy',
+                displayName: 'CodeBuddy',
+                configPath: path.join(os.homedir(), '.codebuddy', 'mcp.json'),
+                configFormat: 'json',
+                mcpServerFieldName: 'mcpServers'
+            },
+            {
+                id: 'trae',
+                name: 'trae',
+                displayName: 'Trae',
+                configPath: path.join(configBasePath, 'TraeCN', 'User', 'mcp.json'),
+                configFormat: 'json',
+                mcpServerFieldName: 'mcpServers'
             }
         ];
 
@@ -348,6 +373,15 @@ export class AgentConfigurationManager {
             	type: 'http',
             	url: this.getMCPServerUrl(),
             	tools: ['*']
+            };
+        }
+        // CodeBuddy's MCP config accepts only stdio | sse | http — `streamableHttp`
+        // is not recognized. Keep the `http` transport it already uses.
+        if (agent?.id === 'codebuddy') {
+            return {
+            	type: 'http',
+            	url: this.getMCPServerUrl(),
+            	description: 'DebugMCP - Multi-language debugging support'
             };
         }
 
@@ -417,7 +451,7 @@ export class AgentConfigurationManager {
                 }
 
                 // Check if it's using the old SSE configuration
-                const needsMigration = agent.id === 'copilot-cli'
+                const needsMigration = (agent.id === 'copilot-cli' || agent.id === 'codebuddy')
                     ? debugmcpConfig.type !== 'http' || (debugmcpConfig.url && debugmcpConfig.url.endsWith('/sse'))
                     : debugmcpConfig.type === 'sse' ||
                     debugmcpConfig.type === 'http' ||
