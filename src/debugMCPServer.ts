@@ -224,7 +224,7 @@ export class DebugMCPServer {
                     'Leave empty to debug the entire file or test class.'
                 ),
                 configurationName: z.string().optional().describe(
-                    'Optional debug configuration name from launch.json. ' +
+                    'Optional debug configuration name from launch.json or .code-workspace (see availableDebugTargets). ' +
                     'If omitted, DebugMCP uses its default generated configuration.'
                 ),
             },
