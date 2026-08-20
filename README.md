@@ -5,7 +5,7 @@ Let AI agents debug your code inside VS Code - set breakpoints, step through exe
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.104.0+-blue.svg)](https://code.visualstudio.com/)
 [![Version](https://img.shields.io/badge/version-2.3.1-green.svg)](https://github.com/microsoft/DebugMCP)
-[![VS Marketplace](https://img.shields.io/badge/VS%20Marketplace-Install-blue.svg)](https://marketplace.visualstudio.com/items?itemName=ozzafar.debugmcpextension)
+[![VS Marketplace](https://img.shields.io/badge/VS%20Marketplace-Install-blue.svg)](https://marketplace.visualstudio.com/items?itemName=ozzafar.debugmcpextension-enhanced)
 
 > ⭐ **If you find DebugMCP useful, please [star the repo on GitHub](https://github.com/microsoft/DebugMCP)!** It helps others discover the project and motivates continued development.
 
@@ -26,7 +26,7 @@ Let AI agents debug your code inside VS Code - set breakpoints, step through exe
 
 ## 🚀 Quick Install
 
-**[Install from VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ozzafar.debugmcpextension)** or use the direct link: `vscode:extension/ozzafar.debugmcpextension`
+**[Install from VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ozzafar.debugmcpextension-enhanced)** or use the direct link: `vscode:extension/ozzafar.debugmcpextension-enhanced`
 
 ## Table of Contents
 - [Overview](#overview)
@@ -96,11 +96,11 @@ DebugMCP follows systematic debugging practices for effective issue resolution:
 ### Quick Install Options
 
 **Option 1: Direct Link** (Fastest)
-- Click this link: [vscode:extension/ozzafar.debugmcpextension](vscode:extension/ozzafar.debugmcpextension)
-- Or copy and paste in your browser: `vscode:extension/ozzafar.debugmcpextension`
+- Click this link: [vscode:extension/ozzafar.debugmcpextension-enhanced](vscode:extension/ozzafar.debugmcpextension-enhanced)
+- Or copy and paste in your browser: `vscode:extension/ozzafar.debugmcpextension-enhanced`
 
 **Option 2: VS Code Marketplace**
-- Visit: [https://marketplace.visualstudio.com/items?itemName=ozzafar.debugmcpextension](https://marketplace.visualstudio.com/items?itemName=ozzafar.debugmcpextension)
+- Visit: [https://marketplace.visualstudio.com/items?itemName=ozzafar.debugmcpextension-enhanced](https://marketplace.visualstudio.com/items?itemName=ozzafar.debugmcpextension-enhanced)
 - Click "Install"
 
 **Option 3: Within VS Code**
