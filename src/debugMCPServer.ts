@@ -166,8 +166,10 @@ export class DebugMCPServer {
             // Surfaced to clients at `initialize`. Points agents at the
             // `debug-live` Agent Skill, which the extension installs into the
             // standard skills directories for harnesses that load skills.
-            instructions: 'These tools drive the VS Code debugger to investigate bugs, failing tests, ' +
-                'wrong/null values and other "it doesn\'t work" reports by stepping through code. ' +
+instructions: 'To use these tools effectively, invoke the "debug-live" Agent Skill first; it provides the ' +
+                'investigation workflow using the debugger, including breakpoint strategy, step-and-inspect ' +
+                'pattern and root-cause guidance. These tools drive the debugger to investigate bugs, failing tests, ' +
+                'exceptions, crashes, hangs, wrong/null values, unexpected output, and other runtime problems. ' +
                 'Workflow: call get_debug_state first to see whether a session is active and what launch targets exist; ' +
                 'then start_debugging, optionally picking a configurationName from availableDebugTargets. ' +
                 'Launch and restart return asynchronously — confirm with get_debug_state and read the Debug Console for logs. ' +
@@ -210,11 +212,11 @@ export class DebugMCPServer {
     private setupTools(server: McpServer, debuggingHandler: IDebuggingHandler) {
         // Start debugging tool
         server.registerTool('start_debugging', {
-            description: 'Dispatch the debug start command for a source file and return immediately — the launch is asynchronous. ' +
-                'Use when investigating bugs, failing tests, wrong/null variable values, unexpected runtime behavior, ' +
-                'or any "it doesn\'t work" report. Confirm the session with get_debug_state; a session that is already ' +
+description: 'Dispatch the debug start command for a source file and return immediately — the launch is asynchronous. ' +
+                'Use when investigating bugs, failing tests, exceptions, crashes, hangs, wrong/null values, unexpected output, ' +
+                'or other runtime problems. Confirm the session with get_debug_state; a session that is already ' +
                 'active will be rejected — stop_debugging first. Optionally debug a single test via testName, or pick a ' +
-                'configurationName from availableDebugTargets. See the "debug-live" skill for the full investigation workflow.',
+                'configurationName from availableDebugTargets. Invoke the "debug-live" skill first.',
             inputSchema: {
                 fileFullPath: z.string().describe('Full path to the source code file to debug'),
                 workingDirectory: z.string().describe('Working directory for the debug session'),
